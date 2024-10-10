@@ -267,7 +267,7 @@ s3_client = boto3.client(
     's3',
 )
 bucket_name = 'anarix-cpi'
-s3_folder = 'EHD/'
+s3_folder = 'EUROPEAN_HOME_DESIGNS/'
 
 def get_latest_file_from_s3(prefix):
     """Fetches the latest file based on LastModified timestamp for a given prefix."""
