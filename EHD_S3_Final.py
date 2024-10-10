@@ -299,6 +299,10 @@ def load_and_preprocess_data():
      # Debugging: Verify static files loaded
     #st.write("Loaded asin_keyword_df from S3 (static):", asin_keyword_df.head())
     #st.write("Loaded keyword_id_df from S3 (static):", keyword_id_df.head())
+    
+    df_scrapped = pd.read_csv("ehd_scrapped_product_details_final.csv", on_bad_lines='skip')
+    df_scrapped['ASIN'] = df_scrapped['ASIN'].str.upper()
+    df_scrapped_cleaned = df_scrapped.drop_duplicates(subset='ASIN')
 
     # Load dynamic files with latest dates
     merged_data_df = load_latest_csv_from_s3('merged_data_')
@@ -306,6 +310,7 @@ def load_and_preprocess_data():
     merged_data_df['asin'] = merged_data_df['asin'].str.upper()
     merged_data_df['ASIN'] = merged_data_df['asin']
     merged_data_df['price'] = pd.to_numeric(merged_data_df['price'], errors='coerce')
+    merged_data_df = pd.merge(df_scrapped_cleaned, merged_data_df[['asin','product_title', 'price', 'date']], left_on='ASIN', right_on='asin', how='left')
     # Debugging: Check merged_data_df after renaming and modifying 'asin'
     #st.write("Loaded merged_data_df with latest date (dynamic):", merged_data_df.head())
     
