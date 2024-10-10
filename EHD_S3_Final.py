@@ -269,17 +269,8 @@ s3_client = boto3.client(
 bucket_name = 'anarix-cpi'
 s3_folder = 'EHD/'
 
-
-def load_static_csv_from_s3(file_name):
-    s3_key = f"{s3_folder}{file_name}"
-    obj = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
-    return pd.read_csv(obj['Body'])
-
-asin_keyword_df = load_static_csv_from_s3('asin_keyword_id_mapping.csv')
-keyword_id_df = load_static_csv_from_s3('keyword_x_keyword_id.csv')
-
-
 def get_latest_file_from_s3(prefix):
+    """Fetches the latest file based on LastModified timestamp for a given prefix."""
     response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=s3_folder)
     all_files = [
         obj['Key'] for obj in response.get('Contents', [])
@@ -295,22 +286,16 @@ def get_latest_file_from_s3(prefix):
     )
     return latest_file
 
-
 def load_latest_csv_from_s3(prefix):
+    """Loads the latest CSV file for a given prefix."""
     latest_file_key = get_latest_file_from_s3(prefix)
     obj = s3_client.get_object(Bucket=bucket_name, Key=latest_file_key)
     return pd.read_csv(obj['Body'], low_memory=False)
 
-merged_data_df = load_latest_csv_from_s3('merged_data_')
-price_data_df = load_latest_csv_from_s3('price_data_')
-
-
 @st.cache_data
 def load_and_preprocess_data():
-    # Load static files
-    asin_keyword_df = load_static_csv_from_s3('asin_keyword_id_mapping.csv')
-    keyword_id_df = load_static_csv_from_s3('keyword_x_keyword_id.csv')
-
+    asin_keyword_df = load_latest_csv_from_s3('asin_keyword_id_mapping')
+    keyword_id_df = load_latest_csv_from_s3('keyword_x_keyword_id')
      # Debugging: Verify static files loaded
     #st.write("Loaded asin_keyword_df from S3 (static):", asin_keyword_df.head())
     #st.write("Loaded keyword_id_df from S3 (static):", keyword_id_df.head())
@@ -324,7 +309,7 @@ def load_and_preprocess_data():
     # Debugging: Check merged_data_df after renaming and modifying 'asin'
     #st.write("Loaded merged_data_df with latest date (dynamic):", merged_data_df.head())
     
-    price_data_df = load_latest_csv_from_s3('price_data_')
+    price_data_df = load_latest_csv_from_s3('ehd_price_data')
     
     # Debugging: Check price_data_df after loading
     #st.write("Loaded price_data_df with latest date (dynamic):", price_data_df.head())
@@ -340,6 +325,8 @@ def load_and_preprocess_data():
              #merged_data_df[['Product Details', 'Glance Icon Details', 'Option', 'Drop Down']].head())
 
     return asin_keyword_df, keyword_id_df, merged_data_df, price_data_df
+
+asin_keyword_df, keyword_id_df, merged_data_df, price_data_df = load_and_preprocess_data()
 
 # Only load data once at the beginning, using st.session_state to store it
 #if 'loaded_data' not in st.session_state:
