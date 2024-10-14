@@ -324,7 +324,7 @@ def load_and_preprocess_data():
     merged_data_df['Glance Icon Details'] = merged_data_df['Glance Icon Details'].apply(parse_dict_str)
     merged_data_df['Option'] = merged_data_df['Option'].apply(parse_dict_str)
     merged_data_df['Drop Down'] = merged_data_df['Option'].apply(parse_dict_str)
-
+    
     # Debugging: Verify parsing applied to merged_data_df
     #st.write("Merged data after parsing columns (Product Details, Glance Icon Details, Option, Drop Down):", 
              #merged_data_df[['Product Details', 'Glance Icon Details', 'Option', 'Drop Down']].head())
@@ -495,13 +495,18 @@ def find_similar_products(asin, price_min, price_max, merged_data_df, compulsory
     print(len(similarities))
 
     # Optionally, save to CSV or display in Streamlit
-    #similarities_df = pd.DataFrame(similarities, columns=[
-        #'ASIN', 'Product Title', 'Price', 'Weighted Score', 'Details Score',
-        #'Title Score', 'Description Score', 'Compare Details', 'Details Comparison',
-        #'Title Comparison', 'Description Comparison', 'Brand'
-    #])
-    #st.dataframe(similarities_df)
-    #similarities_df.to_csv('similarity_df.csv')
+    similarities_df = pd.DataFrame(similarities, columns=[
+        'ASIN', 'Product Title', 'Price', 'Brand'
+    ])
+    st.dataframe(similarities_df)
+    similarity_df = similarities_df.to_csv('similarity_df.csv')
+    st.download_button(
+        label=f"Download Competitor Details",
+        data=similarity_df,
+        file_name=f"similarity_df.csv",
+        mime='text/csv',
+        #key=f"download_button_{asin}_{date}"  # Ensure this key is unique
+    )
 
     return similarities
 
