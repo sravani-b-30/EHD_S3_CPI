@@ -314,7 +314,7 @@ def load_and_preprocess_data():
     merged_data_df.loc[missing_brand_mask, 'brand'] = merged_data_df.loc[missing_brand_mask, 'product_title'].apply(extract_brand_from_title)
 
     merged_data_df['price'] = pd.to_numeric(merged_data_df['price'], errors='coerce')
-    merged_data_df = pd.merge(df_scrapped_cleaned, merged_data_df[['asin','product_title', 'price', 'date']], left_on='ASIN', right_on='asin', how='left')
+    merged_data_df = pd.merge(df_scrapped_cleaned, merged_data_df[['asin', 'brand' , 'product_title', 'price', 'date']], left_on='ASIN', right_on='asin', how='left')
     # Debugging: Check merged_data_df after renaming and modifying 'asin'
     #st.write("Loaded merged_data_df with latest date (dynamic):", merged_data_df.head())
     
