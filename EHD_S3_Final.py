@@ -499,18 +499,18 @@ def find_similar_products(asin, price_min, price_max, merged_data_df, compulsory
     print(len(similarities))
 
     # Optionally, save to CSV or display in Streamlit
-    similarities_df = pd.DataFrame(similarities, columns=[
-        'ASIN', 'Product Title', 'Price', 'Brand'
-    ])
-    st.dataframe(similarities_df)
-    similarity_df = similarities_df.to_csv('similarity_df.csv')
-    st.download_button(
-        label=f"Download Competitor Details",
-        data=similarity_df,
-        file_name=f"similarity_df.csv",
-        mime='text/csv',
+    #similarities_df = pd.DataFrame(similarities, columns=[
+     #   'ASIN', 'Product Title', 'Price', 'Brand'
+    #])
+    #st.dataframe(similarities_df)
+    #similarity_df = similarities_df.to_csv('similarity_df.csv')
+    #st.download_button(
+     #   label=f"Download Competitor Details",
+     #   data=similarity_df,
+      #  file_name=f"similarity_df.csv",
+       # mime='text/csv',
         #key=f"download_button_{asin}_{date}"  # Ensure this key is unique
-    )
+    #)
 
     return similarities
 
