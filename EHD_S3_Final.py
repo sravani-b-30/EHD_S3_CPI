@@ -309,6 +309,10 @@ def load_and_preprocess_data():
     merged_data_df = merged_data_df.rename(columns={"ASIN": "asin", "title": "product_title"})
     merged_data_df['asin'] = merged_data_df['asin'].str.upper()
     merged_data_df['ASIN'] = merged_data_df['asin']
+
+    missing_brand_mask = merged_data_df['brand'].isna() | (merged_data_df['brand'] == "")
+    merged_data_df.loc[missing_brand_mask, 'brand'] = merged_data_df.loc[missing_brand_mask, 'product_title'].apply(extract_brand_from_title)
+
     merged_data_df['price'] = pd.to_numeric(merged_data_df['price'], errors='coerce')
     merged_data_df = pd.merge(df_scrapped_cleaned, merged_data_df[['asin','product_title', 'price', 'date']], left_on='ASIN', right_on='asin', how='left')
     # Debugging: Check merged_data_df after renaming and modifying 'asin'
@@ -412,12 +416,12 @@ def find_similar_products(asin, price_min, price_max, merged_data_df, compulsory
     else:
         similar_asin_list = []  # No filtering based on ASINs if "No Keywords" is selected
 
-    merged_data_df['identified_brand'] = merged_data_df['product_title'].apply(extract_brand_from_title)
+    #merged_data_df['identified_brand'] = merged_data_df['product_title'].apply(extract_brand_from_title)
 
     target_product = merged_data_df[merged_data_df['ASIN'] == asin].iloc[0]
     target_details = {**target_product['Product Details'], **target_product['Glance Icon Details']}
 
-    target_brand = target_product['identified_brand']
+    target_brand = target_product['brand']
     target_title = str(target_product['product_title']).lower()
     target_desc = str(target_product['Description']).lower()
 
@@ -428,7 +432,7 @@ def find_similar_products(asin, price_min, price_max, merged_data_df, compulsory
     for index, row in merged_data_df.iterrows():
         if row['ASIN'] == asin:
             continue
-        compare_brand = row['identified_brand']
+        compare_brand = row['brand']
         if same_brand_option == 'only' and compare_brand != target_brand:
             continue
         if same_brand_option == 'omit' and compare_brand == target_brand:
