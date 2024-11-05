@@ -588,17 +588,17 @@ def run_analysis(asin, price_min, price_max, target_price, compulsory_features, 
     competitor_details_df = pd.DataFrame(similar_products, columns=[
         'ASIN', 'Title', 'Price', 'Weighted Score', 'Details Score',
         'Title Score', 'Description Score', 'Product Details',
-        'Details Comparison', 'Title Comparison', 'Description Comparison', 'Brand'
+        'Details Comparison', 'Title Comparison', 'Description Comparison', 'Brand', 'Matching Features'
     ])
 
     # Extract Product Dimension and Matching Features
     competitor_details_df['Product Dimension'] = competitor_details_df['Product Details'].apply(
         lambda details: details.get('Product Dimensions', 'N/A'))
     
-    # Add matching compulsory features
-    competitor_details_df['Matching Features'] = competitor_details_df['Product Details'].apply(
-        lambda details: {feature: details.get(feature, 'N/A') for feature in compulsory_features}
-    )
+    # # Add matching compulsory features
+    # competitor_details_df['Matching Features'] = competitor_details_df['Product Details'].apply(
+    #     lambda details: {feature: details.get(feature, 'N/A') for feature in compulsory_features}
+    # )
 
     # Filter the dataframe to include only the required columns
     competitor_details_df = competitor_details_df[['ASIN', 'Title', 'Price', 'Product Dimension', 'Brand', 'Matching Features']]
