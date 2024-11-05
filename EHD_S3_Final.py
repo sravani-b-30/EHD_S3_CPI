@@ -294,7 +294,7 @@ def load_latest_csv_from_s3(prefix):
     obj = s3_client.get_object(Bucket=bucket_name, Key=latest_file_key)
     return pd.read_csv(obj['Body'], low_memory=False)
 
-@st.cache_data
+@st.cache_resource
 def load_and_preprocess_data():
     asin_keyword_df = load_latest_csv_from_s3('asin_keyword_id_mapping')
     keyword_id_df = load_latest_csv_from_s3('keyword_x_keyword_id')
@@ -1259,7 +1259,7 @@ keyword_mapping = load_keyword_mapping(keyword_id_df)
 # Add a radio button for keyword-based filtering
 keyword_option = st.radio(
     "Would you like to include keywords in filtering?",
-    ('No Keywords', 'Include Keywords')
+    ('No Keywords', 'Include Keywords', 'Negate Keywords')
 )
 
 def get_words_in_title(asin=None):
