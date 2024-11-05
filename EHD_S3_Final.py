@@ -15,6 +15,8 @@ from concurrent.futures import ThreadPoolExecutor
 import streamlit as st 
 import boto3
 from datetime import datetime
+import io
+import csv
 
 
 nltk.download('punkt', quiet=True)
@@ -408,11 +410,46 @@ def find_similar_asins(input_asin, asin_keyword_df):
 
     return similar_asins
 
+def find_dissimilar_asins(input_asin, asin_keyword_df):
 
-def find_similar_products(asin, price_min, price_max, merged_data_df, compulsory_features, same_brand_option, compulsory_keywords):
+    # Convert keyword_id_list column from string representation to actual lists
+    asin_keyword_df['keyword_id_list'] = asin_keyword_df['keyword_id_list'].apply(safe_literal_eval)
+
+    input_keyword_id_list = asin_keyword_df.loc[asin_keyword_df['asin'] == input_asin, 'keyword_id_list'].values
+
+    # Check if the ASIN exists in the data
+    if len(input_keyword_id_list) == 0:
+        print(f"ASIN {input_asin} not found in the data.")
+        return []
+
+    # Remove the nested structure (since input_keyword_id_list is wrapped inside another list)
+    input_keyword_id_list = input_keyword_id_list[0]
+
+    # Convert the input keyword_id_list into a set for comparison
+    input_keyword_id_set = set(st.session_state.get('selected_keyword_ids', []))
+    # Initialize a list to store similar ASINs
+    dissimilar_asins = []
+
+    # Loop through other ASINs and check for any keyword_id overlap
+    for idx, row in asin_keyword_df.iterrows():
+        # Skip the input ASIN itself
+        if row['asin'] == input_asin:
+            continue
+
+        # Convert the current ASIN's keyword_id_list to a set and check for intersection
+        row_keyword_id_set = set(row['keyword_id_list'])
+        if not input_keyword_id_set.intersection(row_keyword_id_set):
+            dissimilar_asins.append(row['asin'])
+
+    return dissimilar_asins
+
+
+def find_similar_products(asin, price_min, price_max, merged_data_df, compulsory_features, same_brand_option, compulsory_keywords, non_compulsory_keywords):
     # If the user selected "Include Keywords", find similar ASINs
     if keyword_option == 'Include Keywords':
         similar_asin_list = find_similar_asins(asin, asin_keyword_df)
+    elif keyword_option == 'Negate Keywords':
+        similar_asin_list = find_dissimilar_asins(asin, asin_keyword_df)
     else:
         similar_asin_list = []  # No filtering based on ASINs if "No Keywords" is selected
 
@@ -447,18 +484,44 @@ def find_similar_products(asin, price_min, price_max, merged_data_df, compulsory
 
             title = row['product_title']
 
-            # Ensure title is a valid string, otherwise return False
+            all_keywords_present = False
+            any_excluded_word_present = False  # Invalid title, fail both checks
+            
             if isinstance(title, str):
-                # Check if all keywords from compulsory_keywords are present in the title
-                all_keywords_present = all(keyword.lower() in title.lower() for keyword in compulsory_keywords)
-            else:
-                all_keywords_present = False  # Return False if the title is NaN or not a string
-
+                    all_keywords_present = all(keyword.lower() in title.lower() for keyword in compulsory_keywords)
+                    any_excluded_word_present = any(keyword.lower() in title.lower() for keyword in non_compulsory_keywords)
+            
+            if any_excluded_word_present or not all_keywords_present:
+                continue 
             # Append product to similarities based on keyword filtering option
             if keyword_option == 'Include Keywords':
                 # Check if the product matches the ASIN list and has all keywords present in the title
                 #all_keywords_present = all(keyword.lower() in compare_title for keyword in compulsory_keywords)
-                if compulsory_match and (row['ASIN'] in similar_asin_list) and all_keywords_present:
+                if compulsory_match and (row['ASIN'] in similar_asin_list):
+                    # Append the product to the similarities list
+                    asin = row['ASIN']
+                    combination = (compare_title, row['price'], str(compare_details))
+                    if combination not in seen_combinations and asin not in unique_asins:
+                        details_score, title_score, desc_score, details_comparison, title_comparison, desc_comparison = calculate_similarity(
+                            target_details, compare_details, target_title, compare_title, target_desc, compare_desc
+                        )
+                        weighted_score = calculate_weighted_score(details_score, title_score, desc_score)
+                        #st.write(f"Tuple length: {len((asin, row['product_title'], row['price'], weighted_score, details_score, title_score, desc_score, compare_details, details_comparison, title_comparison, desc_comparison, compare_brand))}")
+                        if weighted_score > 0:
+                            matching_features = {}
+                            for feature in compulsory_features:
+                                if feature in target_details and feature in compare_details:
+                                    if target_details[feature] == compare_details[feature]:
+                                        matching_features[feature] = compare_details[feature]
+                            similarities.append(
+                                (asin, row['product_title'], row['price'], weighted_score, details_score,
+                                 title_score, desc_score, compare_details, details_comparison, title_comparison,
+                                 desc_comparison, compare_brand, matching_features)
+                            )
+                        unique_asins.add(asin)
+                        seen_combinations.add(combination)
+            elif keyword_option == 'Negate Keywords':
+                if compulsory_match and (row['ASIN'] in similar_asin_list):
                     # Append the product to the similarities list
                     asin = row['ASIN']
                     combination = (compare_title, row['price'], str(compare_details))
@@ -468,10 +531,15 @@ def find_similar_products(asin, price_min, price_max, merged_data_df, compulsory
                         )
                         weighted_score = calculate_weighted_score(details_score, title_score, desc_score)
                         if weighted_score > 0:
+                            matching_features = {}
+                            for feature in compulsory_features:
+                                if feature in target_details and feature in compare_details:
+                                    if target_details[feature] == compare_details[feature]:
+                                        matching_features[feature] = compare_details[feature]
                             similarities.append(
                                 (asin, row['product_title'], row['price'], weighted_score, details_score,
                                  title_score, desc_score, compare_details, details_comparison, title_comparison,
-                                 desc_comparison, compare_brand)
+                                 desc_comparison, compare_brand, matching_features)
                             )
                         unique_asins.add(asin)
                         seen_combinations.add(combination)
@@ -486,37 +554,26 @@ def find_similar_products(asin, price_min, price_max, merged_data_df, compulsory
                         )
                         weighted_score = calculate_weighted_score(details_score, title_score, desc_score)
                         if weighted_score > 0:
+                            matching_features = {}
+                            for feature in compulsory_features:
+                                if feature in target_details and feature in compare_details:
+                                    if target_details[feature] == compare_details[feature]:
+                                        matching_features[feature] = compare_details[feature]
                             similarities.append(
                                 (asin, row['product_title'], row['price'], weighted_score, details_score,
                                  title_score, desc_score, compare_details, details_comparison, title_comparison,
-                                 desc_comparison, compare_brand)
+                                 desc_comparison, compare_brand, matching_features)
                             )
                         unique_asins.add(asin)
                         seen_combinations.add(combination)
 
     similarities = sorted(similarities, key=lambda x: x[3], reverse=True)
     similarities = similarities[:100]  # Limit to top 100 results
-    print(len(similarities))
-
-    # Optionally, save to CSV or display in Streamlit
-    #similarities_df = pd.DataFrame(similarities, columns=[
-     #   'ASIN', 'Product Title', 'Price', 'Brand'
-    #])
-    #st.dataframe(similarities_df)
-    #similarity_df = similarities_df.to_csv('similarity_df.csv')
-    #st.download_button(
-     #   label=f"Download Competitor Details",
-     #   data=similarity_df,
-      #  file_name=f"similarity_df.csv",
-       # mime='text/csv',
-        #key=f"download_button_{asin}_{date}"  # Ensure this key is unique
-    #)
-
     return similarities
 
 
-def run_analysis(asin, price_min, price_max, target_price, compulsory_features, same_brand_option, merged_data_df, compulsory_keywords):
-    similar_products = find_similar_products(asin, price_min, price_max, merged_data_df, compulsory_features, same_brand_option, compulsory_keywords)
+def run_analysis(asin, price_min, price_max, target_price, compulsory_features, same_brand_option, merged_data_df, compulsory_keywords, non_compulsory_keywords):
+    similar_products = find_similar_products(asin, price_min, price_max, merged_data_df, compulsory_features, same_brand_option, compulsory_keywords, non_compulsory_keywords)
     prices = [p[2] for p in similar_products]
     competitor_prices = np.array(prices)
     cpi_score = calculate_cpi_score(target_price, competitor_prices)
@@ -585,9 +642,36 @@ def show_features(asin):
 
     return product_details
 
-def perform_scatter_plot(asin, target_price, price_min, price_max, compulsory_features, same_brand_option, merged_data_df, compulsory_keywords):
+s3_client = boto3.client('s3')
+bucket_name = 'anarix-cpi'
+csv_folder = 'EUROPEAN_HOME_DESIGNS/' 
+
+# Function to generate the competitor data CSV and upload it to S3
+def upload_competitor_data_to_s3(competitors_data, asin):
+    # Generate CSV content
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=["ASIN", "Title", "Price", "Product Dimension", "Brand", "Matching Features"])
+    writer.writeheader()
+    writer.writerows(competitors_data)
+    csv_content = output.getvalue().encode('utf-8')
+
+    # Define the S3 key (file name) for the CSV
+    s3_key = f"{csv_folder}competitors_analysis_{asin}.csv"
+    
+    # Upload the CSV to S3
+    s3_client.put_object(Bucket=bucket_name, Key=s3_key, Body=csv_content, ContentType='text/csv')
+
+    # Generate a presigned URL for downloading the file
+    presigned_url = s3_client.generate_presigned_url('get_object',
+        Params={'Bucket': bucket_name, 'Key': s3_key},
+        ExpiresIn=3600  # URL expires in 1 hour
+    )
+    
+    return presigned_url
+
+def perform_scatter_plot(asin, target_price, price_min, price_max, compulsory_features, same_brand_option, merged_data_df, compulsory_keywords, non_compulsory_keywords, generate_csv=False):
     # Find similar products
-    similar_products = find_similar_products(asin, price_min, price_max, merged_data_df, compulsory_features, same_brand_option, compulsory_keywords)
+    similar_products = find_similar_products(asin, price_min, price_max, merged_data_df, compulsory_features, same_brand_option, compulsory_keywords, non_compulsory_keywords)
 
     # Retrieve target product information
     target_product = merged_data_df[merged_data_df['ASIN'] == asin].iloc[0]
@@ -603,7 +687,7 @@ def perform_scatter_plot(asin, target_price, price_min, price_max, compulsory_fe
     
     target_product_entry = (
         asin, target_product['product_title'], target_price, weighted_score, details_score,
-        title_score, desc_score, target_details, details_comparison, title_comparison, desc_comparison
+        title_score, desc_score, target_details, details_comparison, title_comparison, desc_comparison, target_product['brand']
     )
 
     # Ensure the target product is not included in the similar products list
@@ -618,6 +702,19 @@ def perform_scatter_plot(asin, target_price, price_min, price_max, compulsory_fe
     #sizes = [p[7].get('Size', 'N/A') for p in similar_products]
     #styles = [p[7].get('Style', 'N/A') for p in similar_products]
     
+    # Prepare competitors data for CSV
+    competitors_data = [
+        {
+            "ASIN": product[0],
+            "Title": product[1],
+            "Price": product[2],
+            "Product Dimension": product[7].get('Product Dimensions', ''),
+            "Brand": product[11],
+            "Matching Features": str(product[12]) if len(product) > 12 else "No Matching Features"
+        }
+        for product in similar_products
+    ]
+
     # Plot using Plotly
     fig = go.Figure()
 
@@ -676,6 +773,18 @@ def perform_scatter_plot(asin, target_price, price_min, price_max, compulsory_fe
     st.subheader("Product Comparison Details")
     st.write(f"**Competitor Count**: {competitor_count}")
     st.write(f"**Number of Competitors with Null Price**: {price_null_count}")
+
+    # Store competitors data in session state
+    st.session_state['competitors_data'] = competitors_data
+
+    # If user requested a CSV, upload it to S3 and provide the download link
+    if generate_csv:
+        download_link = upload_competitor_data_to_s3(competitors_data, asin)
+        st.session_state['csv_download_link'] = download_link
+
+    # Display CSV download link if available
+    if 'csv_download_link' in st.session_state:
+        st.markdown(f"[Download Competitor Analysis CSV]({st.session_state['csv_download_link']})")
     
     # CPI Score Polar Plot
     competitor_prices = np.array(prices)
@@ -730,7 +839,7 @@ if 'competitor_files' not in st.session_state:
 if 'recompute' not in st.session_state:
     st.session_state['recompute'] = False
 
-def process_date(merged_data_df, asin, date_str, price_min, price_max, compulsory_features, same_brand_option, compulsory_keywords):
+def process_date(merged_data_df, asin, date_str, price_min, price_max, compulsory_features, same_brand_option, compulsory_keywords, non_compulsory_keywords):
     """
     This function processes data for a single date and returns the results.
     """
@@ -752,7 +861,7 @@ def process_date(merged_data_df, asin, date_str, price_min, price_max, compulsor
         return None
 
     # Calling run_analysis (assuming it's available and properly defined)
-    result = run_analysis(asin, price_min, price_max, target_price, compulsory_features, same_brand_option, df_current_day, compulsory_keywords)
+    result = run_analysis(asin, price_min, price_max, target_price, compulsory_features, same_brand_option, df_current_day, compulsory_keywords, non_compulsory_keywords)
     #st.write("run_analysis result:", result)
 
     # Calculate the number of products with missing or invalid prices
@@ -772,6 +881,7 @@ def calculate_and_plot_cpi(merged_data_df, price_data_df, asin_list, start_date,
     dates_to_process = []
 
     compulsory_keywords = st.session_state.get('compulsory_keywords', [])
+    non_compulsory_keywords = st.session_state.get('non_compulsory_keywords', [])
 
     # Initialize session state variables
     #if 'result_df' not in st.session_state:
@@ -996,6 +1106,8 @@ def run_analysis_button(merged_data_df, price_data_df, asin, price_min, price_ma
 
     st.session_state['selected_keyword_ids'] = get_selected_keyword_ids()
     compulsory_keywords = st.session_state.get('compulsory_keywords', [])
+    non_compulsory_keywords = st.session_state.get('non_compulsory_keywords', [])
+
 
     
     merged_data_df['date'] = pd.to_datetime(merged_data_df['date'], errors='coerce')
@@ -1031,11 +1143,11 @@ def run_analysis_button(merged_data_df, price_data_df, asin, price_min, price_ma
 
     # Check if we should perform time-series analysis (only if brand == 'napqueen' and dates are provided)
     if target_brand.upper() == "AMERICAN KENNEL CLUB" and start_date and end_date:
-        perform_scatter_plot(asin, target_price, price_min, price_max, compulsory_features, same_brand_option, df_recent, compulsory_keywords)
+        perform_scatter_plot(asin, target_price, price_min, price_max, compulsory_features, same_brand_option, df_recent, compulsory_keywords, non_compulsory_keywords, generate_csv=generate_csv_option)
         calculate_and_plot_cpi(merged_data_df, price_data_df, [asin], start_date, end_date, price_min, price_max, compulsory_features, same_brand_option)
     else:
         # Perform scatter plot only
-        perform_scatter_plot(asin, target_price, price_min, price_max, compulsory_features, same_brand_option, df_recent, compulsory_keywords)
+        perform_scatter_plot(asin, target_price, price_min, price_max, compulsory_features, same_brand_option, df_recent, compulsory_keywords, non_compulsory_keywords, generate_csv=generate_csv_option)
 
 
 # Load data globally before starting the Streamlit app
@@ -1091,6 +1203,8 @@ with col3:
 
 # Target price input
 target_price = st.number_input("Target Price", value=0.00)
+
+generate_csv_option = st.checkbox("Generate CSV file for download", value=True)
 
 # Checkbox for including time-series analysis, placed directly after Target Price
 include_dates = st.checkbox("Include Dates for Time-Series Analysis", value=True)
@@ -1155,16 +1269,30 @@ def get_words_in_title(asin=None):
     
     words_in_title = st.text_area("Words must be in Title", value="", height=100, key=f"words_in_title_text_area{key_suffix}")
     # Split the input text by whitespace and return it as a list of words
-    words_list = words_in_title.split()
-    
+    words_in_list = [word.strip() for word in re.split(r'[,;\s]+', words_in_title) if word.strip()]
     # Store the list in session state to persist it across the session
-    st.session_state['compulsory_keywords'] = words_list
+    st.session_state['compulsory_keywords'] = words_in_list
 
-    return words_list
+    return words_in_list
 
-
+compulsory_keywords = []
 # Initialize the compulsory_keywords list that stores words entered by the user
 compulsory_keywords = get_words_in_title(asin)
+
+def get_exclude_words_in_title(asin=None):
+    """Retrieve words from the Text box and return them as a list."""
+    # Use the asin to generate a unique key if necessary
+    key_suffix = f"_{asin}" if asin else ""
+    # New box for "Exclude words in title"
+    exclude_words_in_title = st.text_area("Exclude words in Title", value="", height=100, key=f"exclude_words_in_title_text_area{key_suffix}")
+    non_compulsory_keywords = [word.strip() for word in re.split(r'[,;\s]+', exclude_words_in_title) if word.strip()]
+    st.session_state['non_compulsory_keywords'] = non_compulsory_keywords  # Store in session state for persistence
+
+    return  non_compulsory_keywords
+
+non_compulsory_keywords = []
+
+non_compulsory_keywords = get_exclude_words_in_title(asin)
 
 # If the user selects "Include Keywords", allow them to select keywords from multi-select
 if keyword_option == 'Include Keywords':
@@ -1185,8 +1313,30 @@ if keyword_option == 'Include Keywords':
         # Update selected keyword IDs based on user selection
         selected_keyword_ids = [keyword_mapping[keyword] for keyword in selected_keywords]
 
-        # Merge the selected keywords with words entered manually
-        #all_keywords = compulsory_keywords + selected_keywords
+        # Store selected keyword IDs in session state
+        st.session_state['selected_keyword_ids'] = selected_keyword_ids
+
+        return selected_keywords 
+    
+    if asin:
+        selected_keywords = update_keyword_ids(asin)
+elif keyword_option == 'Negate Keywords':
+    def update_keyword_ids(asin):
+        # Load keyword IDs based on the input ASIN
+        keyword_ids = load_keyword_ids(asin, asin_keyword_df)
+
+        # Map the loaded keyword IDs to their corresponding keywords
+        keyword_options = [keyword for keyword, id in keyword_mapping.items() if id in keyword_ids]
+
+        if not keyword_options:
+            st.write(f"No keywords found for ASIN: {asin}")
+            return []
+
+        # Display multi-select box for keyword options
+        selected_keywords = st.multiselect("Select Keywords for the given ASIN", options=keyword_options)
+
+        # Update selected keyword IDs based on user selection
+        selected_keyword_ids = [keyword_mapping[keyword] for keyword in selected_keywords]
 
         # Store selected keyword IDs in session state
         st.session_state['selected_keyword_ids'] = selected_keyword_ids
