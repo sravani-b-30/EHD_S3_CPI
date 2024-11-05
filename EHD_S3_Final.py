@@ -906,7 +906,7 @@ def calculate_and_plot_cpi(merged_data_df, price_data_df, asin_list, start_date,
             dates_to_process.append(current_date)
             
             st.write(f"Processing date: {current_date}")
-            result = process_date(merged_data_df, asin, pd.to_datetime(current_date), price_min, price_max, compulsory_features, same_brand_option, compulsory_keywords)
+            result = process_date(merged_data_df, asin, pd.to_datetime(current_date), price_min, price_max, compulsory_features, same_brand_option, compulsory_keywords, non_compulsory_keywords)
 
             if result is not None:
                 daily_results = result['result'][:-1]
